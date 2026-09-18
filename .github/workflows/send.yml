@@ -8,7 +8,7 @@ on:
         type: boolean
         default: false
   schedule:
-    - cron: "30 8 * * *"
+    - cron: "1 0 * * *"
       timezone: "Asia/Shanghai"
 
 concurrency:
@@ -24,6 +24,8 @@ jobs:
     env:
       DOUYIN_COOKIE: ${{ secrets.DOUYIN_COOKIE }}
       DOUYIN_CONFIG: ${{ secrets.DOUYIN_CONFIG }}
+      FRIENDS: ${{ vars.DOUYIN_FRIENDS }}
+      MESSAGE: ${{ vars.DOUYIN_MESSAGE }}
       DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
       DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
       HEADLESS: "true"
@@ -34,9 +36,35 @@ jobs:
           python-version: "3.11"
       - run: pip install -r requirements.txt
       - run: python -m playwright install --with-deps chromium
-      - name: Write protected configuration
+      - name: Write configuration
         shell: bash
-        run: printf '%s' "$DOUYIN_CONFIG" > config.json
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          friends = [item.strip() for item in os.environ.get("FRIENDS", "").replace("，", ",").split(",") if item.strip()]
+          message = (os.environ.get("MESSAGE") or "火花").strip() or "火花"
+
+          if friends:
+              config = {
+                  "task_id": "daily-streak",
+                  "timezone": "Asia/Shanghai",
+                  "friends": friends,
+                  "messages": [{"type": "text", "value": message}],
+                  "send_interval_seconds": {"min": 3, "max": 8},
+                  "continue_on_error": True,
+                  "prevent_duplicates": True,
+                  "target_open_retries": 1,
+                  "target_open_timeout_seconds": 15,
+              }
+              Path("config.json").write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+              print(f"使用仓库变量配置: {len(friends)} 位好友, 消息={message}")
+          else:
+              Path("config.json").write_text(os.environ.get("DOUYIN_CONFIG", ""), encoding="utf-8")
+              print("使用 DOUYIN_CONFIG 密钥配置")
+          PY
       - name: Write multi-account configuration
         shell: bash
         env:
