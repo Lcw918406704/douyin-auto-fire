@@ -133,14 +133,58 @@ jobs:
               encoding="utf-8",
           )
           PY
+      - name: Check inputs
+        shell: bash
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          import os
+
+          print("## 输入检查")
+          cookie = os.environ.get("DOUYIN_COOKIE", "").strip()
+          kind = "空"
+          count = 0
+          if cookie:
+              try:
+                  data = json.loads(cookie)
+                  if isinstance(data, list):
+                      kind = "Cookie数组(正常)"
+                      count = len(data)
+                  else:
+                      kind = "不是数组(异常)"
+              except Exception:
+                  kind = "JSON解析失败(异常)"
+          print(f"- DOUYIN_COOKIE: 长度={len(cookie)} 字符, 类型={kind}, 条数={count}")
+          try:
+              config = json.load(open("config.json", encoding="utf-8"))
+              friends = config.get("friends", [])
+              print(f"- config.json 好友({len(friends)}): {'、'.join(friends)}")
+              print(f"- 消息内容: {config.get('messages', [{}])[0].get('value')}")
+          except Exception as exc:
+              print(f"- config.json 读取失败: {exc}")
+          PY
+
       - name: Run
         shell: bash
         run: |
+          set +e
           if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.dry_run }}" == "true" ]]; then
-            python run.py --dry-run
+            python run.py --dry-run 2>&1 | tee run_output.txt
           else
-            python run.py
+            python run.py 2>&1 | tee run_output.txt
           fi
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ]; then
+            {
+              echo ""
+              echo "## 运行失败(退出码 $code)"
+              echo ""
+              echo '```'
+              tail -n 30 run_output.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit $code
       - name: Upload diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
